@@ -42,7 +42,7 @@ class QualityReport:
 
 
 def check_users(session: Session) -> QualityReport:
-    report = QualityReport(table="users")
+    report = QualityReport(table="users", rows=0)
     report.rows = len(session.execute(select(User.login)).scalars().all())
     report.nulls = {"name": len(session.execute(select(User.login).where(User.name.is_(None))).scalars().all())}
     report.duplicates = 0  # login is PK
@@ -54,7 +54,7 @@ def check_users(session: Session) -> QualityReport:
 
 
 def check_repositories(session: Session) -> QualityReport:
-    report = QualityReport(table="repositories")
+    report = QualityReport(table="repositories", rows=0)
     report.rows = len(session.execute(select(Repository.full_name)).scalars().all())
     report.nulls = {
         "language": len(session.execute(select(Repository.full_name).where(Repository.language.is_(None))).scalars().all()),
@@ -68,7 +68,7 @@ def check_repositories(session: Session) -> QualityReport:
 
 
 def check_events(session: Session) -> QualityReport:
-    report = QualityReport(table="events")
+    report = QualityReport(table="events", rows=0)
     report.rows = len(session.execute(select(Event.id)).scalars().all())
     report.nulls = {
         "repo": len(session.execute(select(Event.id).where(Event.repo.is_(None))).scalars().all()),
@@ -81,7 +81,7 @@ def check_events(session: Session) -> QualityReport:
 
 
 def check_country_economy(session: Session) -> QualityReport:
-    report = QualityReport(table="country_economy")
+    report = QualityReport(table="country_economy", rows=0)
     report.rows = len(session.execute(select(CountryEconomy.id)).scalars().all())
     report.nulls = {
         "life_expectancy": len(session.execute(select(CountryEconomy.id).where(CountryEconomy.life_expectancy.is_(None))).scalars().all()),

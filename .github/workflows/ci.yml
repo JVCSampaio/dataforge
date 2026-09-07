@@ -25,6 +25,7 @@ jobs:
     env:
       PYTHONPATH: src
       DATABASE_URL: postgresql+psycopg2://dataforge:dataforge@localhost:5432/dataforge
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_USERS: guillaumegomez,jakevdp
       GITHUB_DAYS_BACK: "7"
       GITHUB_TOP_REPOS_PER_USER: "3"

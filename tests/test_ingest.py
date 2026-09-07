@@ -25,5 +25,7 @@ def test_ingest_incremental(db_session):
     second = run_ingest(db_session, settings, source="github")
     db_session.commit()
 
-    assert first > 0, "initial windowed ingest should pull at least one event"
-    assert second <= first, "incremental run should not fetch more than the initial one"
+    first_n = first["github"]
+    second_n = second["github"]
+    assert first_n > 0, "initial windowed ingest should pull at least one event"
+    assert second_n <= first_n, "incremental run should not fetch more than the initial one"
