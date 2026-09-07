@@ -55,7 +55,7 @@ def ingest_github(session: Session, settings: Settings) -> int:
     Users/repos are upserted, so re-running refreshes counts without
     duplicating rows. Returns the number of newly inserted event rows.
     """
-    client = GitHubClient(token=None, timeout=settings.http_timeout)
+    client = GitHubClient(token=settings.github_token, timeout=settings.http_timeout)
     new_events = 0
     last_event_date: datetime | None = None
     try:
@@ -119,7 +119,11 @@ def ingest_github(session: Session, settings: Settings) -> int:
                 except httpx.HTTPStatusError as exc:
                     log.warning("commits for %s unavailable (%s)", full_name, exc.response.status_code)
 
-            events = client.get_events(login, since=since, per_page=100)
+            try:
+                events = client.get_events(login, since=since, per_page=100)
+            except httpx.HTTPStatusError as exc:
+                log.warning("events for %s unavailable (%s); skipping", login, exc.response.status_code)
+                events = []
             for ev in events:
                 row = _event_row_for(ev, login)
                 if session.scalar(select(Event).where(Event.id == ev["id"])) is None:

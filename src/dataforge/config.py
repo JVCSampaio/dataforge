@@ -27,6 +27,7 @@ class Settings:
             "https://raw.githubusercontent.com/plotly/datasets/master/gapminder_unfiltered.csv",
         )
     )
+    github_token: str | None = field(default_factory=lambda: os.getenv("GITHUB_TOKEN") or None)
     http_timeout: float = 30.0
 
 
