@@ -15,6 +15,7 @@ from io import StringIO
 
 import httpx
 import pandas as pd
+import sqlalchemy as sa
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -146,13 +147,15 @@ def _commit_row_for(c: dict, full_name: str) -> Commit:
 
 
 def _event_row_for(ev: dict, login: str) -> Event:
+    repo = ev.get("repo")
+    repo_name = repo.get("name") if isinstance(repo, dict) else repo
     return Event(
         id=ev["id"],
         user_login=login,
         type=ev.get("type", "Unknown"),
-        repo=ev.get("repo"),
+        repo=repo_name,
         created_at=_parse_dt(ev.get("created_at")),
-        raw=ev,
+        raw=sa.json(ev),
     )
 
 
