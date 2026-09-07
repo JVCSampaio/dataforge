@@ -11,13 +11,13 @@ from sqlalchemy.orm import Session
 
 
 def top_repos_by_language(session: Session, limit: int = 10) -> list[dict]:
-    """Top repos per language by stars (JOIN repositories -> repo_languages,
+    """Top repos per language by stars (JOIN repositories -> languages,
     aggregation + ordering)."""
     q = text(
         """
         SELECT r.full_name, rl.name AS language, r.stars, r.forks, r.open_issues
         FROM repositories r
-        JOIN repo_languages rl ON rl.repo_id = r.id
+        JOIN languages rl ON rl.repo_id = r.id
         WHERE rl.percent >= 50
         ORDER BY r.stars DESC
         LIMIT :limit

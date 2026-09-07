@@ -55,6 +55,7 @@ def ingest_github(session: Session, settings: Settings) -> int:
     duplicating rows. Returns the number of newly inserted event rows.
     """
     client = GitHubClient(token=settings.github_token, timeout=settings.http_timeout)
+    log.info("github ingest: %s", "authenticated (GITHUB_TOKEN)" if settings.github_token else "unauthenticated (rate-limited to 60/hr)")
     new_events = 0
     last_event_date: datetime | None = None
     try:
