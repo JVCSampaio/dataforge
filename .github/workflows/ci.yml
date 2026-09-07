@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: dataforge
+          POSTGRES_PASSWORD: dataforge
+          POSTGRES_DB: dataforge
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dataforge"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      PYTHONPATH: src
+      DATABASE_URL: postgresql+psycopg2://dataforge:dataforge@localhost:5432/dataforge
+      GITHUB_USERS: guillaumegomez,jakevdp
+      GITHUB_DAYS_BACK: "7"
+      GITHUB_TOP_REPOS_PER_USER: "3"
+      CSV_SOURCE: https://raw.githubusercontent.com/plotly/datasets/master/gapminder_unfiltered.csv
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python -m dataforge db-init
+      - run: python -m dataforge ingest --source all
+      - run: python -m pytest -v
+      - run: python -m ruff check src tests

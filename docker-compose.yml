@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: dataforge
+      POSTGRES_PASSWORD: dataforge
+      POSTGRES_DB: dataforge
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dataforge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg2://dataforge:dataforge@db:5432/dataforge
+      GITHUB_USERS: guillaumegomez,jakevdp,vintaugh,adamchainz
+      GITHUB_DAYS_BACK: "30"
+      GITHUB_TOP_REPOS_PER_USER: "10"
+      CSV_SOURCE: https://raw.githubusercontent.com/plotly/datasets/master/gapminder_unfiltered.csv
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "python -m dataforge db-init && python -m dataforge ingest --source all && python -m dataforge serve"
+
+volumes:
+  pgdata:

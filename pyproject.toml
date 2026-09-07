@@ -1,0 +1,12 @@
+[project]
+name = "dataforge"
+version = "0.1.0"
+description = "Data platform: incremental ingestion (GitHub API + public CSV), data quality, PostgreSQL, FastAPI analytics"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
