@@ -15,7 +15,6 @@ from io import StringIO
 
 import httpx
 import pandas as pd
-import sqlalchemy as sa
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -159,7 +158,7 @@ def _event_row_for(ev: dict, login: str) -> Event:
         type=ev.get("type", "Unknown"),
         repo=repo_name,
         created_at=_parse_dt(ev.get("created_at")),
-        raw=sa.json(ev),
+        raw=ev,
     )
 
 
