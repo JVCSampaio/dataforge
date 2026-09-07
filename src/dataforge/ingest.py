@@ -115,7 +115,16 @@ def ingest_github(session: Session, settings: Settings) -> int:
                 try:
                     commits = client.get_commits(full_name, per_page=10)
                     for c in commits:
-                        session.merge(_commit_row_for(c, full_name))
+                        row = _commit_row_for(c, full_name)
+                        existing = session.scalar(
+                            select(Commit).where(Commit.sha == row.sha, Commit.repo == row.repo)
+                        )
+                        if existing is None:
+                            session.add(row)
+                        else:
+                            existing.message = row.message
+                            existing.author = row.author
+                            existing.committed_at = row.committed_at
                 except httpx.HTTPStatusError as exc:
                     log.warning("commits for %s unavailable (%s)", full_name, exc.response.status_code)
 
