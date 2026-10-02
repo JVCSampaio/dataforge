@@ -1,20 +1,22 @@
 # DataForge
 
+[![CI](https://github.com/JVCSampaio/dataforge/actions/workflows/ci.yml/badge.svg)](https://github.com/JVCSampaio/dataforge/actions/workflows/ci.yml) · [Portfólio](https://github.com/JVCSampaio)
+
 **Data platform** end-to-end: ingesta dados **reais** de fontes heterogêneas (API GitHub + CSV público), aplica **controle de qualidade**, persiste em **PostgreSQL** com modelagem relacional, expõe **analytics via SQL não trivial** e serve tudo por uma **API REST (FastAPI)** — tudo dentro de **Docker** com **CI** no GitHub Actions.
 
-> Não é um notebook. É um pipeline de dados de verdade, com estado incremental, testes e documentação — o tipo de projeto que responde às perguntas de entrevista de Data Analyst / Data Engineer Jr / Analytics Engineer.
+O fluxo integra ingestão, qualidade, armazenamento e consumo analítico. As decisões técnicas e instruções de execução estão documentadas abaixo.
 
-## O que ele prova (e por quê)
+## Funcionalidades e implementação
 
-| Capacidade | Onde aparece | Pergunta de entrevista que responde |
-|---|---|---|
-| **Ingestão incremental** | `sync_state` + `since` na API de eventos | "Como você evita reprocessar tudo? Como escala a cada run?" |
-| **Idempotência** | upserts + chaves únicas (`full_name`, `sha`, `(country, year)`) | "E se o pipeline rodar duas vezes? Duplica?" |
-| **Data quality** | `quality.py`: nulls, duplicatas, schema, valores impossíveis | "Como você detecta e trata dados ruins antes de confiar neles?" |
-| **Modelagem relacional** | `users`, `repositories`, `languages`, `events`, `commits`, `country_economy` | "Como você modela dados de fontes diferentes num único schema?" |
-| **SQL não trivial** | CTEs, `ROW_NUMBER()`, `LAG()`, `date_trunc`, JOINs | "Mostre que você sabe SQL além de `SELECT *`." |
-| **API de analytics** | FastAPI: `/metrics/*`, `/quality`, `/health` | "Como você expõe dados para consumo?" |
-| **Reprodutibilidade** | Dockerfile, `docker-compose.yml`, CI | "Como alguém roda o seu projeto do zero?" |
+| Capacidade | Implementação |
+|---|---|
+| **Ingestão incremental** | `sync_state` + `since` na API de eventos |
+| **Idempotência** | upserts + chaves únicas (`full_name`, `sha`, `(country, year)`) |
+| **Data quality** | `quality.py`: nulls, duplicatas, schema, valores impossíveis |
+| **Modelagem relacional** | `users`, `repositories`, `languages`, `events`, `commits`, `country_economy` |
+| **SQL não trivial** | CTEs, `ROW_NUMBER()`, `LAG()`, `date_trunc`, JOINs |
+| **API de analytics** | FastAPI: `/metrics/*`, `/quality`, `/health` |
+| **Reprodutibilidade** | Dockerfile, `docker-compose.yml`, CI |
 
 ## Arquitetura
 
