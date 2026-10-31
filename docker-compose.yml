@@ -9,6 +9,7 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./orchestration/airflow/init-airflow-db.sql:/docker-entrypoint-initdb.d/02-airflow-db.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dataforge"]
       interval: 5s
@@ -30,6 +31,31 @@ services:
       - "8000:8000"
     command: >
       sh -c "python -m dataforge db-init && python -m dataforge ingest --source all && python -m dataforge serve"
+
+  airflow:
+    profiles: ["airflow"]
+    build: ./orchestration/airflow
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://dataforge:dataforge@db:5432/airflow
+      PYTHONPATH: /opt/airflow/dataforge/src
+      DATABASE_URL: postgresql+psycopg2://dataforge:dataforge@db:5432/dataforge
+      GITHUB_USERS: guillaumegomez,jakevdp,vintaugh,adamchainz
+      GITHUB_DAYS_BACK: "30"
+      GITHUB_TOP_REPOS_PER_USER: "10"
+      CSV_SOURCE: https://raw.githubusercontent.com/plotly/datasets/master/gapminder_unfiltered.csv
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    volumes:
+      - ./orchestration/airflow/dags:/opt/airflow/dags
+      - ./src:/opt/airflow/dataforge/src
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: standalone
 
 volumes:
   pgdata:

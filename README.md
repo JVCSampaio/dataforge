@@ -96,6 +96,43 @@ python -m dataforge metrics
 python -m dataforge serve
 ```
 
+## Resultados
+
+Execução medida em 31/10/2026, com banco vazio, no PostgreSQL local `dataforge`. A configuração foi a padrão de `src/dataforge/config.py`: usuários `guillaumegomez`, `jakevdp`, `vintaugh` e `adamchainz`, `GITHUB_DAYS_BACK=30`, `GITHUB_TOP_REPOS_PER_USER=10` e o CSV público `gapminder_unfiltered.csv`. O log da ingestão registrou `authenticated (GITHUB_TOKEN)`.
+
+Comandos, nesta ordem: `db-init`, `ingest --source all`, `quality`, `metrics`. Os tempos são a duração medida de cada comando, com `time.perf_counter`.
+
+| Comando | Saída | Tempo (s) |
+|---|---|---|
+| `db-init` | exit 0, `tables created` | 0,626734 |
+| `ingest --source all` | `{"github": 300, "csv": 3313}` | 42,904133 |
+| `quality` | exit 0, 4 relatórios | 0,518244 |
+| `metrics` | exit 0 | 0,481239 |
+
+A soma desses quatro tempos é 44,530350 s.
+
+O retorno do `ingest` conta linhas novas: 300 eventos de GitHub e 3313 linhas do CSV. As outras tabelas foram contadas no Postgres ao final da carga.
+
+| Tabela | Linhas |
+|---|---|
+| users | 3 |
+| repositories | 90 |
+| languages | 171 |
+| events | 300 |
+| commits | 870 |
+| country_economy | 3313 |
+| sync_state | 2 |
+
+`sync_state` gravou `rows_fetched` 300 para `github` (fim em 2026-10-31 00:18:35 UTC) e 3313 para `csv` (2026-10-31 00:18:37 UTC).
+
+Qualidade (`python -m dataforge quality`): 4 relatórios, 4 com `passed` verdadeiro e 0 com `passed` falso. Duplicatas e valores impossíveis ficaram em 0 nas quatro tabelas. Nulos medidos: `users.name` 0, `repositories.language` 23, `events.repo` 0, `events.created_at` 0, `country_economy.life_expectancy` 0, `country_economy.population` 0, `country_economy.gdp_per_cap` 0. O critério `passed` do código só falha quando há valor impossível, então os 23 idiomas nulos não reprovam o relatório de `repositories`.
+
+O log da ingestão tem 131 requisições HTTP: 130 respostas 200 e 1 resposta 404. O único aviso foi `user vintaugh unavailable (404); skipping`, e a tabela `users` ficou com 3 linhas.
+
+A saída capturada está em [docs/resultados-pipeline.png](docs/resultados-pipeline.png).
+
+![Saída do pipeline](docs/resultados-pipeline.png)
+
 ## API (exemplos)
 
 | Endpoint | O que retorna |
@@ -115,11 +152,69 @@ Documentação interativa: `http://localhost:8000/docs`.
 ## Testes e CI
 
 ```bash
-python -m pytest -v          # 12 testes (ingestão, qualidade, analytics, API)
+python -m pytest -v          # 15 testes (ingestão, qualidade, analytics, API, Airflow, n8n)
 python -m ruff check src tests
 ```
 
 O workflow `.github/workflows/ci.yml` sobe um Postgres efêmero, roda a ingestão, os testes e o linter em cada push.
+
+## Orquestração
+
+### Apache Airflow
+
+A DAG `dataforge_etl` fica em `orchestration/airflow/dags/dataforge_etl.py`. Ela cria as tabelas, ingere GitHub e CSV em paralelo e, no fim, roda a qualidade. Se algum relatório vier com `passed` falso, a tarefa `verificar_qualidade` falha.
+
+Agenda: `0 6 * * *` (todo dia às 06:00 UTC). `catchup` está desligado. Cada tarefa tem `retries` 2 e espera 5 minutos entre tentativas.
+
+O Airflow 3.3 usa o mesmo Postgres do projeto, no banco `airflow`, com `LocalExecutor`. O banco de metadados é criado pelo script `orchestration/airflow/init-airflow-db.sql` quando o volume do Postgres é novo. Se o volume já existir, crie o banco uma vez:
+
+```bash
+docker compose exec db psql -U dataforge -d dataforge -c "CREATE DATABASE airflow;"
+```
+
+Suba o Postgres e o Airflow com o perfil `airflow`:
+
+```bash
+docker compose --profile airflow up --build db airflow
+```
+
+A interface fica em `http://localhost:8080`. Na primeira subida, o comando `standalone` gera a senha do usuário `admin` e imprime no log do contêiner. O código do projeto é montado em `/opt/airflow/dataforge/src` e entra no `PYTHONPATH`. A variável `DATABASE_URL` aponta para o banco `dataforge` no serviço `db`. Se quiser autenticar a API do GitHub, exporte `GITHUB_TOKEN` no host antes do `docker compose`. Não grave o token no repositório.
+
+Para disparar uma execução manual dentro do contêiner:
+
+```bash
+docker compose --profile airflow exec airflow airflow dags test dataforge_etl 2026-10-31
+```
+
+Teste de importação, sem subir o agendador. Use um ambiente com Apache Airflow 3.3 e o arquivo de constraints da sua versão de Python (`constraints-3.11.txt` ou `constraints-3.12.txt`):
+
+```bash
+pip install "apache-airflow==3.3.2" --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-3.3.2/constraints-3.12.txt"
+python -m pytest tests/test_airflow_dag.py -v
+```
+
+O teste carrega a pasta da DAG com `DagBag` e falha se houver erro de importação. Sem o pacote instalado, esse caso é ignorado, para o CI principal continuar só com as dependências de `requirements.txt`.
+
+### n8n
+
+O arquivo `orchestration/n8n/dataforge_resumo.json` é uma exportação para importar no n8n. O fluxo tem três nós:
+
+1. Gatilho agendado, cron `0 6 * * *`.
+2. Execute Command, que roda `python -m dataforge ingest --source all` e em seguida `python -m dataforge quality`.
+3. HTTP Request, que envia `stdout` e o código de saída para `https://webhook.example.com/dataforge/resumo`.
+
+A credencial do webhook é só um placeholder (`CREDENCIAL_WEBHOOK_PLACEHOLDER`). O JSON não traz senha, token nem cabeçalho real. O workflow vem com `active` falso.
+
+Como importar:
+
+1. No n8n, abra Workflows e escolha Import from File.
+2. Selecione `orchestration/n8n/dataforge_resumo.json`.
+3. Crie uma credencial do tipo Header Auth e associe ao nó "Enviar resumo". Use o segredo só na interface do n8n.
+4. No ambiente do n8n, defina `PYTHONPATH` com o diretório `src` do projeto e `DATABASE_URL` com a conexão do Postgres. O comando do nó não embute esses valores.
+5. Se a instância bloquear o nó Execute Command, libere `n8n-nodes-base.executeCommand` apenas em máquina local.
+6. Execute o fluxo uma vez manualmente. Ative o agendamento depois que o resumo chegar no webhook.
+
+O teste `tests/test_n8n_workflow.py` confere se o arquivo é uma exportação bem formada: nós, conexões, gatilho, comando do pipeline, webhook e credencial placeholder.
 
 ## Decisões técnicas (o "por quê")
 
@@ -147,6 +242,15 @@ dataforge/
 │       └── migrate.py
 ├── migrations/001_init.sql
 ├── tests/                 # pytest (ingest, quality, analytics, api)
+├── orchestration/
+│   ├── airflow/
+│   │   ├── dags/dataforge_etl.py
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   └── init-airflow-db.sql
+│   └── n8n/
+│       └── dataforge_resumo.json
+├── docs/resultados-pipeline.png
 ├── .github/workflows/ci.yml
 ├── Dockerfile
 ├── docker-compose.yml
@@ -160,10 +264,9 @@ dataforge/
 **Limitações (honestas):**
 - Sem autenticação na API (read-only, uso local).
 - Sem retenção/limpeza de eventos antigos (cresce com o tempo).
-- Qualidade é reportada, não bloqueante (em produção, gate o pipeline).
+- A CLI de qualidade reporta e não interrompe o processo. A tarefa `verificar_qualidade` da DAG falha quando algum relatório vem com `passed` falso.
 
 **Roadmap (próxima iteração, proposital):**
-- **Airflow** para orquestrar o ciclo ingest→quality→transform.
 - **dbt** para modelar as camadas `staging → marts`.
 - **DuckDB** para analytics ad-hoc sem subir o Postgres.
 - **PySpark** — *somente* se o volume passar de ~10M de linhas; hoje não é o caso.
