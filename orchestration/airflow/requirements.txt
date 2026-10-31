@@ -1,0 +1,3 @@
+pandas
+httpx
+psycopg2-binary

@@ -1,0 +1,95 @@
+[
+  {
+    "name": "DataForge: resumo da execução",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "0 6 * * *"
+              }
+            ]
+          }
+        },
+        "id": "a11a0e2e-1b34-4c77-9d10-6f2c8e4a1b90",
+        "name": "Agendamento",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [240, 300]
+      },
+      {
+        "parameters": {
+          "command": "python -m dataforge ingest --source all && python -m dataforge quality",
+          "executeOnce": true
+        },
+        "id": "b22b1f3f-2c45-4d88-8e21-7a3d9f5b2c01",
+        "name": "Executar pipeline",
+        "type": "n8n-nodes-base.executeCommand",
+        "typeVersion": 1,
+        "position": [520, 300]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://webhook.example.com/dataforge/resumo",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendBody": true,
+          "contentType": "json",
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ origem: 'dataforge', saida: $json.stdout, codigo_saida: $json.exitCode }) }}",
+          "options": {}
+        },
+        "id": "c33c2a40-3d56-4e99-9f32-8b4e0a6c3d12",
+        "name": "Enviar resumo",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [820, 300],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "CREDENCIAL_WEBHOOK_PLACEHOLDER",
+            "name": "Header do webhook (placeholder)"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Agendamento": {
+        "main": [
+          [
+            {
+              "node": "Executar pipeline",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Executar pipeline": {
+        "main": [
+          [
+            {
+              "node": "Enviar resumo",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "pinData": {},
+    "active": false,
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "versionId": "b3e1d7a2-4c58-4f0e-8a6d-91c2f0e7b4a3",
+    "meta": {
+      "templateCredsSetupCompleted": false,
+      "instanceId": "INSTANCIA_PLACEHOLDER"
+    },
+    "id": "7c2a9b14-6e0d-4f3a-9b21-a1d4e8c0f5b6",
+    "tags": []
+  }
+]
