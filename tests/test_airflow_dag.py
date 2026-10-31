@@ -43,6 +43,6 @@ def test_dagbag_importa_sem_erro(tmp_path, monkeypatch):
     dag = bag.dags["dataforge_etl"]
     assert dag.default_args["retries"] == 2
     qualidade = dag.get_task("verificar_qualidade")
-    assert qualidade.retries == 2
+    assert qualidade.retries == 0
     assert set(qualidade.upstream_task_ids) == {"ingerir_github", "ingerir_csv"}
     assert dag.schedule == "0 6 * * *"

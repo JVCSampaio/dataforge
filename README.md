@@ -1,8 +1,8 @@
 # DataForge
 
-[![CI](https://github.com/JVCSampaio/dataforge/actions/workflows/ci.yml/badge.svg)](https://github.com/JVCSampaio/dataforge/actions/workflows/ci.yml) · [Portfólio](https://github.com/JVCSampaio)
+[![CI](https://github.com/JVCSampaio/dataforge/actions/workflows/ci.yml/badge.svg)](https://github.com/JVCSampaio/dataforge/actions/workflows/ci.yml) [Portfólio](https://github.com/JVCSampaio)
 
-**Data platform** end-to-end: ingesta dados **reais** de fontes heterogêneas (API GitHub + CSV público), aplica **controle de qualidade**, persiste em **PostgreSQL** com modelagem relacional, expõe **analytics via SQL não trivial** e serve tudo por uma **API REST (FastAPI)** — tudo dentro de **Docker** com **CI** no GitHub Actions.
+**Data platform** end-to-end: ingere dados **públicos** de fontes heterogêneas (API GitHub + CSV público), aplica **controle de qualidade**, persiste em **PostgreSQL** com modelagem relacional, expõe **analytics via SQL não trivial** e serve tudo por uma **API REST (FastAPI)**, tudo dentro de **Docker** com **CI** no GitHub Actions.
 
 O fluxo integra ingestão, qualidade, armazenamento e consumo analítico. As decisões técnicas e instruções de execução estão documentadas abaixo.
 
@@ -57,8 +57,8 @@ O fluxo integra ingestão, qualidade, armazenamento e consumo analítico. As dec
 
 ## Fontes de dados
 
-- **GitHub REST API** (público, sem token): perfis de `guillaumegomez`, `jakevdp`, `vintaugh`, `adamchainz` (contribuidores ativos de projetos open-source); seus repositórios, linguagens, eventos recentes e commits.
-- **CSV público** (Gapminder): `country`, `year`, `life_expectancy`, `population`, `gdp_per_cap` — ~3.300 linhas.
+- **GitHub REST API** (público, sem token): perfis de `guillaumegomez`, `jakevdp` e `adamchainz` (contribuidores ativos de projetos open-source); seus repositórios, linguagens, eventos recentes e commits.
+- **CSV público** (Gapminder): `country`, `year`, `life_expectancy`, `population`, `gdp_per_cap`, com 3.313 linhas.
 
 ## Como rodar
 
@@ -98,18 +98,18 @@ python -m dataforge serve
 
 ## Resultados
 
-Execução medida em 31/10/2026, com banco vazio, no PostgreSQL local `dataforge`. A configuração foi a padrão de `src/dataforge/config.py`: usuários `guillaumegomez`, `jakevdp`, `vintaugh` e `adamchainz`, `GITHUB_DAYS_BACK=30`, `GITHUB_TOP_REPOS_PER_USER=10` e o CSV público `gapminder_unfiltered.csv`. O log da ingestão registrou `authenticated (GITHUB_TOKEN)`.
+Execução medida em 31/10/2026, com banco vazio, no PostgreSQL local `dataforge`. A configuração foi a padrão de `src/dataforge/config.py` naquele dia: usuários `guillaumegomez`, `jakevdp`, `vintaugh` e `adamchainz`, `GITHUB_DAYS_BACK=30`, `GITHUB_TOP_REPOS_PER_USER=10` e o CSV público `gapminder_unfiltered.csv`. O log da ingestão registrou `authenticated (GITHUB_TOKEN)`.
 
 Comandos, nesta ordem: `db-init`, `ingest --source all`, `quality`, `metrics`. Os tempos são a duração medida de cada comando, com `time.perf_counter`.
 
 | Comando | Saída | Tempo (s) |
 |---|---|---|
-| `db-init` | exit 0, `tables created` | 0,626734 |
-| `ingest --source all` | `{"github": 300, "csv": 3313}` | 42,904133 |
-| `quality` | exit 0, 4 relatórios | 0,518244 |
-| `metrics` | exit 0 | 0,481239 |
+| `db-init` | exit 0, `tables created` | 0,63 |
+| `ingest --source all` | `{"github": 300, "csv": 3313}` | 42,90 |
+| `quality` | exit 0, 4 relatórios | 0,52 |
+| `metrics` | exit 0 | 0,48 |
 
-A soma desses quatro tempos é 44,530350 s.
+A soma desses quatro tempos é 44,53 s.
 
 O retorno do `ingest` conta linhas novas: 300 eventos de GitHub e 3313 linhas do CSV. As outras tabelas foram contadas no Postgres ao final da carga.
 
@@ -127,9 +127,7 @@ O retorno do `ingest` conta linhas novas: 300 eventos de GitHub e 3313 linhas do
 
 Qualidade (`python -m dataforge quality`): 4 relatórios, 4 com `passed` verdadeiro e 0 com `passed` falso. Duplicatas e valores impossíveis ficaram em 0 nas quatro tabelas. Nulos medidos: `users.name` 0, `repositories.language` 23, `events.repo` 0, `events.created_at` 0, `country_economy.life_expectancy` 0, `country_economy.population` 0, `country_economy.gdp_per_cap` 0. O critério `passed` do código só falha quando há valor impossível, então os 23 idiomas nulos não reprovam o relatório de `repositories`.
 
-O log da ingestão tem 131 requisições HTTP: 130 respostas 200 e 1 resposta 404. O único aviso foi `user vintaugh unavailable (404); skipping`, e a tabela `users` ficou com 3 linhas.
-
-A saída capturada está em [docs/resultados-pipeline.png](docs/resultados-pipeline.png).
+O log da ingestão tem 131 requisições HTTP: 130 respostas 200 e 1 resposta 404. O único aviso foi `user vintaugh unavailable (404); skipping`, e a tabela `users` ficou com 3 linhas. Esse login não existe mais no GitHub e saiu da lista padrão depois desta medição.
 
 ![Saída do pipeline](docs/resultados-pipeline.png)
 
@@ -164,7 +162,7 @@ O workflow `.github/workflows/ci.yml` sobe um Postgres efêmero, roda a ingestã
 
 A DAG `dataforge_etl` fica em `orchestration/airflow/dags/dataforge_etl.py`. Ela cria as tabelas, ingere GitHub e CSV em paralelo e, no fim, roda a qualidade. Se algum relatório vier com `passed` falso, a tarefa `verificar_qualidade` falha.
 
-Agenda: `0 6 * * *` (todo dia às 06:00 UTC). `catchup` está desligado. Cada tarefa tem `retries` 2 e espera 5 minutos entre tentativas.
+Agenda: `0 6 * * *` (todo dia às 06:00 UTC). `catchup` está desligado. As tarefas de banco e de ingestão têm `retries` 2, com 5 minutos de espera, porque falha de rede ou de API costuma passar. A qualidade não repete: um relatório reprovado continua reprovado na segunda tentativa, então a tarefa falha na hora.
 
 O Airflow 3.3 usa o mesmo Postgres do projeto, no banco `airflow`, com `LocalExecutor`. O banco de metadados é criado pelo script `orchestration/airflow/init-airflow-db.sql` quando o volume do Postgres é novo. Se o volume já existir, crie o banco uma vez:
 
@@ -203,7 +201,7 @@ O arquivo `orchestration/n8n/dataforge_resumo.json` é uma exportação para imp
 2. Execute Command, que roda `python -m dataforge ingest --source all` e em seguida `python -m dataforge quality`.
 3. HTTP Request, que envia `stdout` e o código de saída para `https://webhook.example.com/dataforge/resumo`.
 
-A credencial do webhook é só um placeholder (`CREDENCIAL_WEBHOOK_PLACEHOLDER`). O JSON não traz senha, token nem cabeçalho real. O workflow vem com `active` falso.
+A credencial do webhook é só um placeholder (`CREDENCIAL_WEBHOOK_PLACEHOLDER`). O JSON não traz senha, token nem cabeçalho de autenticação. O workflow vem com `active` falso.
 
 Como importar:
 
@@ -218,11 +216,11 @@ O teste `tests/test_n8n_workflow.py` confere se o arquivo é uma exportação be
 
 ## Decisões técnicas (o "por quê")
 
-- **Pandas, não Spark.** O volume aqui é de milhares de linhas — pandas é a ferramenta certa. Spark seria over-engineering; um entrevistador pergunta "por que Spark?" e a resposta honesta é "não precisava".
+- **Pandas em vez de Spark.** O volume é de milhares de linhas, e o pandas resolve. Spark só entra com outra ordem de grandeza (ver roadmap).
 - **`httpx` direto, não PyGithub.** Menos dependências, controle total sobre paginação e `since`.
 - **Upsert em vez de `INSERT`.** Garante idempotência sem lógica de "já existe?" espalhada.
 - **`sync_state` por fonte.** Cada fonte guarda onde parou; a próxima execução só busca o delta.
-- **SQL no banco, não em Python.** Analytics com CTE/window function mostra que o banco é o motor de análise, não um dump.
+- **SQL no banco.** As análises usam CTE e window function e rodam no próprio Postgres, sem trazer os dados para o Python.
 
 ## Estrutura
 
@@ -261,7 +259,7 @@ dataforge/
 
 ## Limitações e roadmap
 
-**Limitações (honestas):**
+**Limitações:**
 - Sem autenticação na API (read-only, uso local).
 - Sem retenção/limpeza de eventos antigos (cresce com o tempo).
 - A CLI de qualidade reporta e não interrompe o processo. A tarefa `verificar_qualidade` da DAG falha quando algum relatório vem com `passed` falso.
@@ -269,8 +267,8 @@ dataforge/
 **Roadmap (próxima iteração, proposital):**
 - **dbt** para modelar as camadas `staging → marts`.
 - **DuckDB** para analytics ad-hoc sem subir o Postgres.
-- **PySpark** — *somente* se o volume passar de ~10M de linhas; hoje não é o caso.
+- **PySpark**, se o volume passar de cerca de 10 milhões de linhas.
 
 ## Licença
 
-MIT — veja [LICENSE](LICENSE).
+MIT. Veja [LICENSE](LICENSE).

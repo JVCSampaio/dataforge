@@ -20,7 +20,7 @@ services:
     build: .
     environment:
       DATABASE_URL: postgresql+psycopg2://dataforge:dataforge@db:5432/dataforge
-      GITHUB_USERS: guillaumegomez,jakevdp,vintaugh,adamchainz
+      GITHUB_USERS: guillaumegomez,jakevdp,adamchainz
       GITHUB_DAYS_BACK: "30"
       GITHUB_TOP_REPOS_PER_USER: "10"
       CSV_SOURCE: https://raw.githubusercontent.com/plotly/datasets/master/gapminder_unfiltered.csv
@@ -42,7 +42,7 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://dataforge:dataforge@db:5432/airflow
       PYTHONPATH: /opt/airflow/dataforge/src
       DATABASE_URL: postgresql+psycopg2://dataforge:dataforge@db:5432/dataforge
-      GITHUB_USERS: guillaumegomez,jakevdp,vintaugh,adamchainz
+      GITHUB_USERS: guillaumegomez,jakevdp,adamchainz
       GITHUB_DAYS_BACK: "30"
       GITHUB_TOP_REPOS_PER_USER: "10"
       CSV_SOURCE: https://raw.githubusercontent.com/plotly/datasets/master/gapminder_unfiltered.csv

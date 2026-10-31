@@ -89,8 +89,8 @@ with DAG(
     tarefa_qualidade = PythonOperator(
         task_id="verificar_qualidade",
         python_callable=verificar_qualidade,
-        retries=2,
-        retry_delay=timedelta(minutes=5),
+        # Um relatório reprovado continua reprovado na nova tentativa: falha na hora.
+        retries=0,
     )
 
     tarefa_banco >> [tarefa_github, tarefa_csv] >> tarefa_qualidade

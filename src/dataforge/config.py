@@ -15,7 +15,7 @@ class Settings:
     github_users: list[str] = field(
         default_factory=lambda: [
             u.strip()
-            for u in os.getenv("GITHUB_USERS", "guillaumegomez,jakevdp,vintaugh,adamchainz").split(",")
+            for u in os.getenv("GITHUB_USERS", "guillaumegomez,jakevdp,adamchainz").split(",")
             if u.strip()
         ]
     )
