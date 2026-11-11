@@ -1,8 +1,9 @@
 """Incremental ingestion layer.
 
 Design goals that interviewers care about:
-- INCREMENTAL: each source records where it stopped (sync_state); the next run
-  only fetches data newer than that point.
+- INCREMENTAL: each source records where it stopped (sync_state). GitHub user
+  events have no `since` parameter, so the next run keeps events at or after
+  the stored watermark.
 - IDEMPOTENT: upserts + unique keys mean re-running never duplicates rows.
 - TOLERANT: per-source failures are logged and do not abort the whole run.
 """
@@ -10,7 +11,7 @@ Design goals that interviewers care about:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 
 import httpx
@@ -29,6 +30,37 @@ def _parse_dt(value: str | None) -> datetime | None:
     if not value:
         return None
     return datetime.fromisoformat(value)
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def event_is_in_window(created_at: datetime | None, since: datetime | None) -> bool:
+    """Keep events at or after the watermark.
+
+    Events with no timestamp stay in the batch and are deduplicated by id.
+    """
+    if since is None or created_at is None:
+        return True
+    return _as_utc(created_at) >= _as_utc(since)
+
+
+def _later(current: datetime | None, candidate: datetime | None) -> datetime | None:
+    if candidate is None:
+        return current
+    if current is None or _as_utc(candidate) > _as_utc(current):
+        return candidate
+    return current
+
+
+def _csv_float(value: object) -> float | None:
+    """Store missing CSV numbers as NULL. float('nan') would bypass the null checks."""
+    if pd.isna(value):
+        return None
+    return float(value)
 
 
 def _get_sync_state(session: Session, source: str) -> SyncState | None:
@@ -50,19 +82,25 @@ def _save_sync_state(session: Session, source: str, last_event_date: datetime | 
 def ingest_github(session: Session, settings: Settings) -> int:
     """Fetch users, repos, languages, recent events and recent commits.
 
-    Events are fetched only since the last successful sync (incremental).
-    Users/repos are upserted, so re-running refreshes counts without
-    duplicating rows. Returns the number of newly inserted event rows.
+    The events call returns the latest page. Rows older than the watermark
+    are dropped here, and the watermark advances to the newest kept event.
+    Users and repos are upserted. Returns the number of newly inserted events.
     """
     client = GitHubClient(token=settings.github_token, timeout=settings.http_timeout)
-    log.info("github ingest: %s", "authenticated (GITHUB_TOKEN)" if settings.github_token else "unauthenticated (rate-limited to 60/hr)")
+    log.info(
+        "github ingest: %s",
+        "authenticated (GITHUB_TOKEN)"
+        if settings.github_token
+        else "unauthenticated (rate-limited to 60/hr)",
+    )
     new_events = 0
-    last_event_date: datetime | None = None
     try:
         state = _get_sync_state(session, "github")
         since = state.last_event_date if state else None
         if since is None:
-            since = utcnow() - pd.Timedelta(days=settings.github_days_back)
+            since = utcnow() - timedelta(days=settings.github_days_back)
+        # A later user with older events must not move the watermark backward.
+        last_event_date = since
 
         for login in settings.github_users:
             try:
@@ -71,13 +109,15 @@ def ingest_github(session: Session, settings: Settings) -> int:
                 log.warning("user %s unavailable (%s); skipping", login, exc.response.status_code)
                 continue
 
-            session.merge(User(
-                login=user["login"],
-                name=user.get("name"),
-                type=user.get("type", "User"),
-                followers=user.get("followers", 0),
-                created_at=_parse_dt(user.get("created_at")),
-            ))
+            session.merge(
+                User(
+                    login=user["login"],
+                    name=user.get("name"),
+                    type=user.get("type", "User"),
+                    followers=user.get("followers", 0),
+                    created_at=_parse_dt(user.get("created_at")),
+                )
+            )
 
             repos = client.get_repos(login)
             for index, repo in enumerate(repos):
@@ -91,7 +131,9 @@ def ingest_github(session: Session, settings: Settings) -> int:
 
                 existing = session.scalar(select(Repository).where(Repository.full_name == full_name))
                 if existing is None:
-                    existing = Repository(full_name=full_name, owner=repo["owner"]["login"], name=repo["name"])
+                    existing = Repository(
+                        full_name=full_name, owner=repo["owner"]["login"], name=repo["name"]
+                    )
                     session.add(existing)
                 existing.stars = repo.get("stargazers_count", 0)
                 existing.forks = repo.get("forks_count", 0)
@@ -129,19 +171,19 @@ def ingest_github(session: Session, settings: Settings) -> int:
                     log.warning("commits for %s unavailable (%s)", full_name, exc.response.status_code)
 
             try:
-                events = client.get_events(login, since=since, per_page=100)
+                events = client.get_events(login, per_page=100)
             except httpx.HTTPStatusError as exc:
                 log.warning("events for %s unavailable (%s); skipping", login, exc.response.status_code)
                 events = []
             for ev in events:
+                created = _parse_dt(ev.get("created_at"))
+                if not event_is_in_window(created, since):
+                    continue
+                last_event_date = _later(last_event_date, created)
                 row = _event_row_for(ev, login)
                 if session.scalar(select(Event).where(Event.id == ev["id"])) is None:
                     session.add(row)
                     new_events += 1
-            if events:
-                last_event_date = max(_parse_dt(e["created_at"]) for e in events if e.get("created_at"))
-        if last_event_date is None:
-            last_event_date = since
         _save_sync_state(session, "github", last_event_date, new_events)
     finally:
         client.close()
@@ -182,13 +224,15 @@ def ingest_csv(session: Session, settings: Settings) -> int:
     else:
         df = pd.read_csv(src)
 
-    df = df.rename(columns={
-        "countryName": "country",
-        "year": "year",
-        "lifeExp": "life_expectancy",
-        "pop": "population",
-        "gdpPercap": "gdp_per_cap",
-    })
+    df = df.rename(
+        columns={
+            "countryName": "country",
+            "year": "year",
+            "lifeExp": "life_expectancy",
+            "pop": "population",
+            "gdpPercap": "gdp_per_cap",
+        }
+    )
     df = df[["country", "year", "life_expectancy", "population", "gdp_per_cap"]]
     df["year"] = df["year"].astype(int)
 
@@ -201,17 +245,20 @@ def ingest_csv(session: Session, settings: Settings) -> int:
             )
         )
         if existing is None:
-            session.add(CountryEconomy(
-                country=row.country, year=row.year,
-                life_expectancy=float(row.life_expectancy),
-                population=float(row.population),
-                gdp_per_cap=float(row.gdp_per_cap),
-            ))
+            session.add(
+                CountryEconomy(
+                    country=row.country,
+                    year=row.year,
+                    life_expectancy=_csv_float(row.life_expectancy),
+                    population=_csv_float(row.population),
+                    gdp_per_cap=_csv_float(row.gdp_per_cap),
+                )
+            )
             count += 1
         else:
-            existing.life_expectancy = float(row.life_expectancy)
-            existing.population = float(row.population)
-            existing.gdp_per_cap = float(row.gdp_per_cap)
+            existing.life_expectancy = _csv_float(row.life_expectancy)
+            existing.population = _csv_float(row.population)
+            existing.gdp_per_cap = _csv_float(row.gdp_per_cap)
     session.flush()
     _save_sync_state(session, "csv", utcnow(), count)
     return count

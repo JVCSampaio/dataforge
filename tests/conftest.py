@@ -18,7 +18,11 @@ def db_session():
         session = sessionmaker(bind=engine)()
     except SQLAlchemyError:
         pytest.skip("PostgreSQL not reachable at DATABASE_URL")
-    return session
+    try:
+        yield session
+    finally:
+        session.close()
+        engine.dispose()
 
 
 @pytest.fixture(scope="session")
@@ -29,10 +33,9 @@ def ingested(db_session):
     data is already present we skip re-hitting the GitHub API (faster + cheaper).
     """
     settings = load_settings()
-    already = (
-        db_session.scalar(select(func.count()).select_from(User)) or 0
-        + (db_session.scalar(select(func.count()).select_from(CountryEconomy)) or 0)
-    )
+    users = db_session.scalar(select(func.count()).select_from(User)) or 0
+    countries = db_session.scalar(select(func.count()).select_from(CountryEconomy)) or 0
+    already = users + countries
     if already > 0:
         return {"github": 0, "csv": 0}
     results = run_ingest(db_session, settings, source="all")

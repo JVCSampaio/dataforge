@@ -49,11 +49,14 @@ class GitHubClient:
         """Return {language: bytes}; callers convert to percentages."""
         return self._get(f"/repos/{full_name}/languages")
 
-    def get_events(self, login: str, since: datetime | None = None, per_page: int = 100) -> list[dict]:
-        params: dict = {"per_page": per_page}
-        if since is not None:
-            params["since"] = since.isoformat()
-        return self._get(f"/users/{login}/events", params=params)
+    def get_events(self, login: str, per_page: int = 100) -> list[dict]:
+        """Return the most recent public events for a user.
+
+        The events endpoint only accepts pagination. A ``since`` query is
+        ignored by GitHub, so ingestion filters ``created_at`` against the
+        watermark stored in ``sync_state``.
+        """
+        return self._get(f"/users/{login}/events", params={"per_page": per_page})
 
     def get_commits(self, full_name: str, per_page: int = 30) -> list[dict]:
         return self._get(f"/repos/{full_name}/commits", params={"per_page": per_page})

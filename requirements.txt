@@ -1,8 +1,6 @@
-fastapi
-uvicorn
-sqlalchemy
-psycopg2-binary
-pandas
-httpx
-pytest
-ruff
+fastapi==0.162.4
+uvicorn==0.54.0
+sqlalchemy==2.1.8
+psycopg2-binary==2.9.13
+pandas==3.1.1
+httpx==0.28.1

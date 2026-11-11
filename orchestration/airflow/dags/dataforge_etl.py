@@ -1,7 +1,7 @@
 """DAG que orquestra o ETL do DataForge.
 
 Cria as tabelas, ingere GitHub e CSV em paralelo e, em seguida, roda a
-qualidade. A tarefa de qualidade falha quando algum relatório vem reprovado.
+qualidade. A tarefa falha quando o relatório da execução vem reprovado.
 """
 
 from __future__ import annotations
@@ -42,24 +42,37 @@ def ingerir(fonte: str) -> dict:
         session.close()
 
 
-def verificar_qualidade() -> list[dict]:
-    """Roda os relatórios e falha se algum vier com passed falso."""
+def verificar_qualidade() -> dict:
+    """Roda o relatório completo e falha se a execução vier reprovada.
+
+    Além dos valores impossíveis, a execução reprova quando uma fonte está
+    ausente ou atrasada, ou quando alguma tabela perde volume além do limite.
+    Se `QUALITY_REPORT_DIR` estiver definido, grava Markdown e HTML nesse diretório.
+    """
+    from pathlib import Path
+
     from dataforge.config import load_settings
     from dataforge.db.session import make_session
-    from dataforge.quality import run_all
+    from dataforge.quality import collect_quality_run, write_quality_reports
 
     settings = load_settings()
     session = make_session(settings.database_url)
     try:
-        relatorios = [item.to_dict() for item in run_all(session)]
+        run = collect_quality_run(
+            session,
+            max_age_hours=settings.quality_max_age_hours,
+            drop_ratio=settings.quality_row_drop_ratio,
+            update_baseline=True,
+        )
+        if settings.quality_report_dir:
+            write_quality_reports(run, Path(settings.quality_report_dir))
     finally:
         session.close()
 
-    reprovados = [item["table"] for item in relatorios if not item["passed"]]
-    if reprovados:
-        nomes = ", ".join(reprovados)
-        raise RuntimeError(f"checagens de qualidade reprovadas: {nomes}")
-    return relatorios
+    if not run.passed:
+        detalhes = "; ".join(run.problems())
+        raise RuntimeError(f"checagens de qualidade reprovadas: {detalhes}")
+    return run.to_dict()
 
 
 with DAG(

@@ -31,12 +31,44 @@ jobs:
       GITHUB_TOP_REPOS_PER_USER: "3"
       CSV_SOURCE: https://raw.githubusercontent.com/plotly/datasets/master/gapminder_unfiltered.csv
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-dev.txt
       - run: python -m dataforge db-init
       - run: python -m dataforge ingest --source all
-      - run: python -m pytest -v
+      - run: python -m pytest --cov-report=xml
+      - name: Coverage summary
+        if: always()
+        run: |
+          python - << 'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          path = Path("coverage.xml")
+          if not path.exists():
+              raise SystemExit(0)
+          root = ET.parse(path).getroot()
+          line_rate = float(root.attrib["line-rate"]) * 100
+          branch_rate = float(root.attrib.get("branch-rate", "0")) * 100
+          text = (
+              "## Coverage\n\n"
+              f"- Statements: {line_rate:.1f}%\n"
+              f"- Branches: {branch_rate:.1f}%\n"
+          )
+          print(text)
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as handle:
+                  handle.write(text)
+          PY
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+          if-no-files-found: ignore
       - run: python -m ruff check src tests
+      - run: python -m ruff format --check src tests

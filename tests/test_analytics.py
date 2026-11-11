@@ -35,3 +35,16 @@ def test_life_trend_sorted(ingested, db_session):
     assert rows
     years = [r["year"] for r in rows]
     assert years == sorted(years)
+
+
+def test_gdp_life_for_2007(ingested, db_session):
+    rows = analytics.gdp_life_scatter(db_session, 2007)
+    assert rows
+    assert {"country", "life_expectancy", "population", "gdp_per_cap"} <= set(rows[0])
+
+
+def test_event_types_are_sorted(ingested, db_session):
+    rows = analytics.top_event_types(db_session)
+    assert rows
+    counts = [row["n"] for row in rows]
+    assert counts == sorted(counts, reverse=True)
