@@ -10,9 +10,9 @@ O fluxo integra ingestão, qualidade, armazenamento e consumo analítico. As dec
 
 | Capacidade | Implementação |
 |---|---|
-| **Ingestão incremental** | `sync_state` + `since` na API de eventos |
+| **Ingestão incremental** | `sync_state` + filtro de `created_at` nos eventos |
 | **Idempotência** | upserts + chaves únicas (`full_name`, `sha`, `(country, year)`) |
-| **Data quality** | `quality.py`: nulls, duplicatas, schema, valores impossíveis |
+| **Data quality** | `quality.py`: nulos, duplicatas, valores impossíveis, frescor e queda de volume. Relatório Markdown e HTML por execução |
 | **Modelagem relacional** | `users`, `repositories`, `languages`, `events`, `commits`, `country_economy` |
 | **SQL não trivial** | CTEs, `ROW_NUMBER()`, `LAG()`, `date_trunc`, JOINs |
 | **API de analytics** | FastAPI: `/metrics/*`, `/quality`, `/health` |
@@ -35,7 +35,7 @@ O fluxo integra ingestão, qualidade, armazenamento e consumo analítico. As dec
                         ▼
         ┌──────────────────────────────────┐
         │  Data Quality                    │
-        │  nulls / dups / schema / range   │
+        │  nulls / range / freshness       │
         └───────────────┬──────────────────┘
                         ▼
         ┌──────────────────────────────────┐
@@ -68,7 +68,9 @@ O fluxo integra ingestão, qualidade, armazenamento e consumo analítico. As dec
 docker compose up --build
 ```
 
-Sobe o Postgres, cria as tabelas, roda a ingestão e sobe a API em `http://localhost:8000`.
+Sobe o Postgres, cria as tabelas, roda a ingestão, grava o relatório de qualidade em `./reports` e sobe a API em `http://localhost:8000`.
+
+Se `GITHUB_TOKEN` estiver exportado no host, o Compose repassa o token para a API e para o Airflow.
 
 ### Manual (sem Docker)
 
@@ -79,22 +81,25 @@ docker run -d -p 5432:5432 -e POSTGRES_USER=dataforge \
 
 # 2. dependências
 python -m venv .venv && .venv\Scripts\activate        # Windows
-pip install -r requirements.txt
+pip install -r requirements.txt                       # pipeline e API
+pip install -r requirements-dev.txt                   # testes, cobertura, ruff e pre-commit
 set PYTHONPATH=src                                       # Windows (ou export PYTHONPATH=src)
 
 # 3. criar tabelas
 python -m dataforge db-init
 
-# 4. ingerir (incremental — rode quantas vezes quiser)
+# 4. ingerir (incremental, rode quantas vezes quiser)
 python -m dataforge ingest --source all
 
 # 5. qualidade e métricas
-python -m dataforge quality
+python -m dataforge quality --output-dir reports
 python -m dataforge metrics
 
 # 6. API
 python -m dataforge serve
 ```
+
+O comando `quality` imprime o JSON das 4 tabelas. Com `--output-dir`, ou com `QUALITY_REPORT_DIR`, ele também grava `quality-<timestamp>.md` e `quality-<timestamp>.html` nesse diretório, com frescor e volume. A pasta `reports/` fica fora do Git. O arquivo `.env.example` repete os padrões de `src/dataforge/config.py`.
 
 ## Resultados
 
@@ -143,24 +148,31 @@ O log da ingestão tem 131 requisições HTTP: 130 respostas 200 e 1 resposta 40
 | `GET /metrics/gdp-life?year=2007` | PIB per capita × expectativa de vida |
 | `GET /metrics/life-trend?country=Brazil` | Série temporal de expectativa de vida |
 | `GET /metrics/event-types` | Distribuição de tipos de evento |
-| `GET /quality` | Relatório de qualidade das 4 tabelas |
+| `GET /quality` | Checagens das 4 tabelas (nulos, duplicatas, valores impossíveis) |
+| `GET /quality/report` | Frescor, volume e as checagens acima. A leitura não move `quality_baseline` |
 
 Documentação interativa: `http://localhost:8000/docs`.
 
 ## Testes e CI
 
 ```bash
-python -m pytest -v          # 15 testes (ingestão, qualidade, analytics, API, Airflow, n8n)
+python -m pytest             # 58 testes (ingestão, qualidade, analytics, API, Airflow, n8n)
 python -m ruff check src tests
+python -m ruff format --check src tests
+pre-commit run --all-files
 ```
 
-O workflow `.github/workflows/ci.yml` sobe um Postgres efêmero, roda a ingestão, os testes e o linter em cada push.
+O `pytest` lê `pythonpath` e a cobertura em `pyproject.toml`. O piso é 95%. `make test` e `make lint` chamam os mesmos comandos. `make install` instala `requirements-dev.txt`.
+
+O caso do `DagBag` continua fora da execução quando o Apache Airflow não está instalado. Os outros 57 rodam com as dependências de desenvolvimento.
+
+O workflow `.github/workflows/ci.yml` sobe um Postgres efêmero, roda a ingestão, os testes com cobertura e o ruff (lint e formato). O resumo da cobertura entra no log do job. O arquivo `coverage.xml` fica anexado como artefato `coverage-report`. O badge no topo aponta para esse workflow.
 
 ## Orquestração
 
 ### Apache Airflow
 
-A DAG `dataforge_etl` fica em `orchestration/airflow/dags/dataforge_etl.py`. Ela cria as tabelas, ingere GitHub e CSV em paralelo e, no fim, roda a qualidade. Se algum relatório vier com `passed` falso, a tarefa `verificar_qualidade` falha.
+A DAG `dataforge_etl` fica em `orchestration/airflow/dags/dataforge_etl.py`. Ela cria as tabelas, ingere GitHub e CSV em paralelo e, no fim, roda a qualidade. A tarefa `verificar_qualidade` falha quando o relatório da execução vem reprovado: valor impossível, fonte ausente ou mais antiga que `QUALITY_MAX_AGE_HOURS` (padrão 36 h), ou queda de contagem igual ou maior que `QUALITY_ROW_DROP_RATIO` (padrão 50%) contra a execução anterior. A primeira medição grava `quality_baseline` e não marca anomalia de volume. Com `QUALITY_REPORT_DIR` definido, a tarefa também grava o Markdown e o HTML. No Compose esse diretório é `/opt/airflow/reports`, montado em `./reports`.
 
 Agenda: `0 6 * * *` (todo dia às 06:00 UTC). `catchup` está desligado. As tarefas de banco e de ingestão têm `retries` 2, com 5 minutos de espera, porque falha de rede ou de API costuma passar. A qualidade não repete: um relatório reprovado continua reprovado na segunda tentativa, então a tarefa falha na hora.
 
@@ -183,6 +195,8 @@ Para disparar uma execução manual dentro do contêiner:
 ```bash
 docker compose --profile airflow exec airflow airflow dags test dataforge_etl 2026-10-31
 ```
+
+O `orchestration/airflow/requirements.txt` fixa pandas, httpx e psycopg2 nas versões do arquivo de constraints do Airflow 3.3.2 para Python 3.11, que é a imagem. Um pin mais novo quebra o `pip install --constraint` do Dockerfile.
 
 Teste de importação, sem subir o agendador. Use um ambiente com Apache Airflow 3.3 e o arquivo de constraints da sua versão de Python (`constraints-3.11.txt` ou `constraints-3.12.txt`):
 
@@ -221,6 +235,7 @@ O teste `tests/test_n8n_workflow.py` confere se o arquivo é uma exportação be
 - **Upsert em vez de `INSERT`.** Garante idempotência sem lógica de "já existe?" espalhada.
 - **`sync_state` por fonte.** Cada fonte guarda onde parou; a próxima execução só busca o delta.
 - **SQL no banco.** As análises usam CTE e window function e rodam no próprio Postgres, sem trazer os dados para o Python.
+- **Relatório de qualidade por execução.** Frescor marca fonte ausente ou atrasada. Volume marca queda de contagem contra a execução anterior. Markdown e HTML saem do mesmo objeto, e a contagem anterior fica em `quality_baseline`.
 
 ## Estrutura
 
@@ -253,6 +268,8 @@ dataforge/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
+├── requirements-dev.txt
+├── .pre-commit-config.yaml
 ├── Makefile
 └── README.md
 ```
@@ -262,7 +279,8 @@ dataforge/
 **Limitações:**
 - Sem autenticação na API (read-only, uso local).
 - Sem retenção/limpeza de eventos antigos (cresce com o tempo).
-- A CLI de qualidade reporta e não interrompe o processo. A tarefa `verificar_qualidade` da DAG falha quando algum relatório vem com `passed` falso.
+- A CLI de qualidade grava o relatório e termina com código 0. Com `--strict`, o código de saída é 1 quando a execução vem reprovada. A tarefa `verificar_qualidade` da DAG falha nesse caso.
+- A coleta de eventos usa a primeira página da API (100 eventos por usuário). A API pública só aceita paginação. O pipeline compara `created_at` com o watermark em `sync_state`.
 
 **Roadmap (próxima iteração, proposital):**
 - **dbt** para modelar as camadas `staging → marts`.
