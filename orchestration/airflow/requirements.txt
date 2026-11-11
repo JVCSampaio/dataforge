@@ -1,3 +1,5 @@
-pandas
-httpx
-psycopg2-binary
+# Pins from the Apache Airflow 3.3.2 constraint file for Python 3.11.
+# The image installs this list with --constraint, so a newer version fails the build.
+pandas==3.0.5
+httpx==0.28.1
+psycopg2-binary==2.9.13
