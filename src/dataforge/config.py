@@ -20,7 +20,9 @@ class Settings:
         ]
     )
     github_days_back: int = field(default_factory=lambda: int(os.getenv("GITHUB_DAYS_BACK", "30")))
-    github_top_repos_per_user: int = field(default_factory=lambda: int(os.getenv("GITHUB_TOP_REPOS_PER_USER", "10")))
+    github_top_repos_per_user: int = field(
+        default_factory=lambda: int(os.getenv("GITHUB_TOP_REPOS_PER_USER", "10"))
+    )
     csv_source: str = field(
         default_factory=lambda: os.getenv(
             "CSV_SOURCE",
@@ -29,6 +31,13 @@ class Settings:
     )
     github_token: str | None = field(default_factory=lambda: os.getenv("GITHUB_TOKEN") or None)
     http_timeout: float = 30.0
+    quality_max_age_hours: float = field(
+        default_factory=lambda: float(os.getenv("QUALITY_MAX_AGE_HOURS", "36"))
+    )
+    quality_row_drop_ratio: float = field(
+        default_factory=lambda: float(os.getenv("QUALITY_ROW_DROP_RATIO", "0.5"))
+    )
+    quality_report_dir: str | None = field(default_factory=lambda: os.getenv("QUALITY_REPORT_DIR") or None)
 
 
 def load_settings() -> Settings:

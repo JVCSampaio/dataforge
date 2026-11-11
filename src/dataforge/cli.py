@@ -3,7 +3,7 @@
 Usage:
     python -m dataforge db-init
     python -m dataforge ingest --source all|github|csv
-    python -m dataforge quality
+    python -m dataforge quality [--output-dir DIR] [--strict]
     python -m dataforge metrics [--top N]
     python -m dataforge serve [--host H] [--port P]
 """
@@ -24,7 +24,7 @@ from .config import load_settings
 from .db.migrate import init_db
 from .db.session import make_session
 from .ingest import run_ingest
-from .quality import run_all
+from .quality import collect_quality_run, write_quality_reports
 
 
 def _print(obj) -> None:
@@ -41,7 +41,17 @@ def main(argv: list[str] | None = None) -> int:
     p_ingest = sub.add_parser("ingest", help="run ingestion")
     p_ingest.add_argument("--source", choices=["all", "github", "csv"], default="all")
 
-    sub.add_parser("quality", help="run data quality checks")
+    p_quality = sub.add_parser("quality", help="run data quality checks")
+    p_quality.add_argument(
+        "--output-dir",
+        default=None,
+        help="write Markdown and HTML reports here (default: QUALITY_REPORT_DIR)",
+    )
+    p_quality.add_argument(
+        "--strict",
+        action="store_true",
+        help="exit 1 when table checks, freshness, or volume fail",
+    )
 
     p_metrics = sub.add_parser("metrics", help="print analytics")
     p_metrics.add_argument("--top", type=int, default=10)
@@ -71,7 +81,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "quality":
         session = make_session(db_url)
         try:
-            _print([r.to_dict() for r in run_all(session)])
+            run = collect_quality_run(
+                session,
+                max_age_hours=settings.quality_max_age_hours,
+                drop_ratio=settings.quality_row_drop_ratio,
+                update_baseline=True,
+            )
+            _print([item.to_dict() for item in run.tables])
+            output_dir = args.output_dir or settings.quality_report_dir
+            if output_dir:
+                markdown_path, html_path = write_quality_reports(run, output_dir)
+                logging.getLogger("dataforge.cli").info("quality report: %s", markdown_path)
+                logging.getLogger("dataforge.cli").info("quality report: %s", html_path)
+            if args.strict and not run.passed:
+                return 1
         finally:
             session.close()
         return 0
@@ -89,6 +112,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "serve":
         import uvicorn
+
         uvicorn.run("dataforge.api:app", host=args.host, port=args.port, reload=False)
         return 0
 

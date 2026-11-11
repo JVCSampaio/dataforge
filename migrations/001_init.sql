@@ -30,8 +30,9 @@ CREATE TABLE IF NOT EXISTS languages (
     UNIQUE (repo_id, name)
 );
 
+-- GitHub event ids exceed INTEGER (2^31-1). BIGINT matches the SQLAlchemy model.
 CREATE TABLE IF NOT EXISTS events (
-    id          INTEGER PRIMARY KEY,
+    id          BIGINT PRIMARY KEY,
     user_login  VARCHAR(100) NOT NULL,
     type        VARCHAR(50) NOT NULL,
     repo        VARCHAR(255),
@@ -70,4 +71,10 @@ CREATE TABLE IF NOT EXISTS sync_state (
     last_sync_at    TIMESTAMPTZ,
     last_event_date TIMESTAMPTZ,
     rows_fetched    INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS quality_baseline (
+    table_name   VARCHAR(50) PRIMARY KEY,
+    row_count    INTEGER NOT NULL,
+    captured_at  TIMESTAMPTZ NOT NULL
 );

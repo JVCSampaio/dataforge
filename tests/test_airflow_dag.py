@@ -16,7 +16,11 @@ PASTA_DAGS = RAIZ / "orchestration" / "airflow" / "dags"
 
 def test_arquivo_da_dag_tem_sintaxe_valida():
     origem = PASTA_DAGS / "dataforge_etl.py"
-    compile(origem.read_text(encoding="utf-8"), str(origem), "exec")
+    texto = origem.read_text(encoding="utf-8")
+    compile(texto, str(origem), "exec")
+    assert "collect_quality_run" in texto
+    assert "update_baseline=True" in texto
+    assert "quality_report_dir" in texto
 
 
 def test_dagbag_importa_sem_erro(tmp_path, monkeypatch):

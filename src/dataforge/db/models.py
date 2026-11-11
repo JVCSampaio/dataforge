@@ -87,3 +87,13 @@ class SyncState(Base):
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_event_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rows_fetched: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class QualityBaseline(Base):
+    """Row count from the previous quality run, used to detect volume drops."""
+
+    __tablename__ = "quality_baseline"
+
+    table_name: Mapped[str] = mapped_column(String(50), primary_key=True)
+    row_count: Mapped[int] = mapped_column(Integer)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

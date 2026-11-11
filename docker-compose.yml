@@ -24,13 +24,19 @@ services:
       GITHUB_DAYS_BACK: "30"
       GITHUB_TOP_REPOS_PER_USER: "10"
       CSV_SOURCE: https://raw.githubusercontent.com/plotly/datasets/master/gapminder_unfiltered.csv
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      QUALITY_MAX_AGE_HOURS: "36"
+      QUALITY_ROW_DROP_RATIO: "0.5"
+      QUALITY_REPORT_DIR: /reports
+    volumes:
+      - ./reports:/reports
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "8000:8000"
     command: >
-      sh -c "python -m dataforge db-init && python -m dataforge ingest --source all && python -m dataforge serve"
+      sh -c "python -m dataforge db-init && python -m dataforge ingest --source all && python -m dataforge quality --output-dir /reports && python -m dataforge serve"
 
   airflow:
     profiles: ["airflow"]
@@ -47,9 +53,13 @@ services:
       GITHUB_TOP_REPOS_PER_USER: "10"
       CSV_SOURCE: https://raw.githubusercontent.com/plotly/datasets/master/gapminder_unfiltered.csv
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      QUALITY_MAX_AGE_HOURS: "36"
+      QUALITY_ROW_DROP_RATIO: "0.5"
+      QUALITY_REPORT_DIR: /opt/airflow/reports
     volumes:
       - ./orchestration/airflow/dags:/opt/airflow/dags
       - ./src:/opt/airflow/dataforge/src
+      - ./reports:/opt/airflow/reports
     ports:
       - "8080:8080"
     depends_on:
